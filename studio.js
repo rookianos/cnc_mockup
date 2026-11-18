@@ -15,26 +15,27 @@ const measurements = {chest:"胸寬平量",shoulder:"肩寬平量",front:"前衣
 const materials = ["棉", "棉混紡", "Interlock", "運動針織", "Piqué", "羅紋", "華夫格", "搖粒絨", "法式毛圈", "運動網眼"];
 const palette = ["181818","363739","666766","999994","d4d0c4","eeeade","ffffff","453832","795643","b39069","b88b7f","802a38","ba3441","e65c35","d4a626","d9dd49","727950","313d2d","4c8580","263749","38508d","615076","b4a5bd","f2a5c2","876126","1d5755","793e63","9ab0b7"];
 const ranges = {
-  fabricRanges:[["fold","褶皺",0,100,64],["texture","質地",0,100,42],["knit","針織尺度",1,12,4],["light","布面亮度",30,190,100]],
+  fabricRanges:[["fold","褶皺",0,100,64],["texture","質地",0,100,27],["knit","針織尺度",1,12,2],["light","布面亮度",30,190,100]],
   sceneRanges:[["exposure","曝光",-70,100,0],["contrast","對比",30,180,100],["shadow","接地陰影",0,100,44]]
 };
 const canvas = $("canvas");
+const patternCanvas = $("patternCanvas");
 const work = document.createElement("canvas");
 work.width = work.height = 1800;
 const ctx = work.getContext("2d", {willReadFrequently:true});
 let garment = 0, view = "front", zone = "front", drafts, layers, photos, pending, drag, last, tab = "art";
-let timer;
+let timer, split = false, lastPattern;
 function notify(message) {
   $("status").textContent = message;
   clearTimeout(timer);
   timer = setTimeout(() => $("status").textContent = "", 4200);
 }
-function artwork(name, width=27, height=9, image=null) {
+function artwork(name, width, height, image) {
   return {name,width,height,image,x:0,y:0,angle:0};
 }
 function defaults() {
   drafts = garments.map(([, , chest, length, shoulder, sleeve]) => ({chest,shoulder,front:length,back:length,sleeve,waist:chest,inseam:length}));
-  layers = {front:artwork("CHRONIC 示範印花")};
+  layers = {};
   photos = {};
 }
 defaults();
@@ -67,12 +68,20 @@ function updateUI() {
     $(button.dataset.value).hidden = button.dataset.value!==tab;
     button.classList.toggle("on",button.dataset.value===tab);
   });
-  $("mode").textContent = view==="pattern"?"PATTERN":{flat:"FLAT LAY",hang:"HANGING",form:"DISPLAY FORM"}[$("pose").value];
+  $("mode").textContent = view==="pattern"?"裁片示意":activePhoto()?"實拍合成":"2D · "+{flat:"FLAT LAY",hang:"HANGING",form:"DISPLAY FORM"}[$("pose").value];
   $("pose").disabled = view==="pattern" || !!activePhoto();
-  $("removePhoto").hidden = !activePhoto();
+  const photo=activePhoto();
+  $("removePhoto").hidden = !photo;
+  $("photoCalibration").hidden = !photo;
+  if(photo) for(const key of ["width","x","y"]) $("photo"+key[0].toUpperCase()+key.slice(1)).value=photo[key];
   if (!availableZones().includes(zone)) zone = view==="back"?"back":"front";
   $("zone").innerHTML = availableZones().map(key => '<option value="'+key+'">'+zones[key]+'</option>').join("");
   $("zone").value = zone;
+  $("split").classList.toggle("on",split);
+  $("split").setAttribute("aria-pressed",String(split));
+  $("stageLayout").classList.toggle("split",split);
+  $("patternSide").hidden = !split;
+  $("patternZones").innerHTML = availableZones().map(key => '<button class="'+(key===zone?'on':'')+'" data-zone="'+key+'" aria-pressed="'+(key===zone)+'">'+zones[key]+'</button>').join("");
   const keys = kind==="pants"?["waist","inseam"]:["chest","shoulder","front","back",...(availableZones().includes("left")?["sleeve"]:[])];
   $("measurements").innerHTML = keys.map(key => '<label class="field">'+measurements[key]+' cm<input type="number" min="5" max="180" step="0.1" data-measure="'+key+'" value="'+drafts[garment][key]+'"></label>').join("");
   syncLayer();
@@ -95,9 +104,9 @@ function color(hex, amount=0) {
   const clamp = x => Math.max(0,Math.min(255,Math.round(x+amount)));
   return "rgb("+clamp(n>>16)+","+clamp((n>>8)&255)+","+clamp(n&255)+")";
 }
-function geometry(side = view) {
+function geometry(side = view, pattern = view==="pattern") {
   const d = drafts[garment], kind = garments[garment][6], fit = +$("fitType").value;
-  const pose = view==="pattern"?"flat":$("pose").value;
+  const pose = pattern || activePhoto()?"flat":$("pose").value;
   const pants = kind==="pants", tank = kind==="tank"||kind==="women";
   const len = pants?d.inseam:(side==="back"?d.back:d.front);
   const chest = (pants?d.waist:d.chest)*fit;
@@ -123,10 +132,10 @@ function geometry(side = view) {
   } else {
     if (!tank) for (const [key,sign] of [["left",-1],["right",1]]) {
       const f = n=>x+sign*n;
-      const tip = sh+sl*(pose==="hang"?(long?.24:.69):long?.50:.88);
-      const cuffY = sy+sl*(long?.88:.59)+bend;
+      const tip = sh+sl*(pose==="flat"?(long?.50:.88):pose==="form"?(long?.33:.66):(long?.24:.62));
+      const cuffY = sy+sl*(long?.88:pose==="flat"?.59:.84)+bend;
       const cuff = Math.max(17,(armpit-sy)*(long?.30:.68));
-      piece(key,`M${f(sh-15)} ${sy} C${f(sh+sl*.25)} ${sy+2} ${f(tip-10)} ${cuffY-26} ${f(tip)} ${cuffY} L${f(tip-cuff)} ${cuffY+cuff*.42} Q${f(sh+sl*.16)} ${armpit+6} ${f(half-10)} ${armpit}Z`,[`M${f(tip-6)} ${cuffY-7}L${f(tip-cuff+2)} ${cuffY+cuff*.42-7}`],[[f(sh+3),sy+11,f(tip-14),cuffY]]);
+      piece(key,`M${f(sh-15)} ${sy} C${f(sh+sl*.25)} ${sy+2} ${f(tip-10)} ${cuffY-26} ${f(tip)} ${cuffY} L${f(tip-cuff)} ${cuffY+cuff*.42} Q${f(sh+sl*.10)} ${armpit+6} ${f(half-22)} ${armpit+12} L${f(Math.min(sh,half)-20)} ${sy+18}Z`,[`M${f(tip-6)} ${cuffY-7}L${f(tip-cuff+2)} ${cuffY+cuff*.42-7}`],[[f(sh+3),sy+11,f(tip-14),cuffY]]);
       anchors[key]=[f((sh+tip)/2-6),(sy+cuffY)/2+20];
     }
     if (kind==="hood") {
@@ -195,7 +204,7 @@ function fold(g, coords, strength) {
   const [x,y,xx,yy]=coords;
   const grad=ctx.createLinearGradient(x,y,xx,yy);
   grad.addColorStop(0,"transparent");grad.addColorStop(.17,"rgba(0,0,0,"+strength+")");
-  grad.addColorStop(.58,"rgba(255,255,255,"+strength*.58+")");grad.addColorStop(1,"transparent");
+  grad.addColorStop(.58,"rgba(255,255,255,"+strength*.24+")");grad.addColorStop(1,"transparent");
   ctx.strokeStyle=grad;ctx.lineWidth=4+g.scale*.65;ctx.filter="blur("+Math.max(4,g.scale*.77)+"px)";
   ctx.beginPath();ctx.moveTo(x,y);ctx.bezierCurveTo(x+(xx-x)*.10,y+(yy-y)*.46,xx-(xx-x)*.28,yy-(yy-y)*.16,xx,yy);ctx.stroke();
   ctx.filter="none";
@@ -219,13 +228,13 @@ function shade(item,g,art) {
   ctx.fillStyle=ripple;ctx.fillRect(0,0,900,900);
   for (const coords of item.folds) fold(g,coords,strength*.65);
   const texture=+$("texture").value/100;
-  ctx.globalAlpha=texture*.57;ctx.fillStyle=weavePattern();ctx.fillRect(0,0,900,900);
-  ctx.globalAlpha=texture*.6;ctx.fillStyle=ctx.createPattern(grain,"repeat");ctx.fillRect(0,0,900,900);
+  ctx.globalAlpha=texture*.31;ctx.fillStyle=weavePattern();ctx.fillRect(0,0,900,900);
+  ctx.globalAlpha=texture*.39;ctx.fillStyle=ctx.createPattern(grain,"repeat");ctx.fillRect(0,0,900,900);
   ctx.globalAlpha=1;
-  ctx.lineWidth=3;ctx.strokeStyle="#0005";ctx.stroke(item.shape);
+  ctx.lineWidth=2;ctx.strokeStyle="#0004";ctx.stroke(item.shape);
   for(const seam of item.seams) {
     ctx.lineWidth=4;ctx.strokeStyle="#0005";ctx.stroke(seam);
-    ctx.setLineDash([1.6,1.9]);ctx.lineWidth=.9;ctx.strokeStyle="#d0cfb557";ctx.stroke(seam);ctx.setLineDash([]);
+    ctx.setLineDash([1.6,1.9]);ctx.lineWidth=.75;ctx.strokeStyle="#d0cfb53b";ctx.stroke(seam);ctx.setLineDash([]);
   }
   ctx.restore();
 }
@@ -234,14 +243,7 @@ function printArtwork(layer,key,g,{full=false}={}) {
   if(!pos) return;
   const [x,y]=pos, w=layer.width*g.scale, h=layer.height*g.scale;
   ctx.save();ctx.translate(x+layer.x*g.scale,y+layer.y*g.scale);ctx.rotate(layer.angle*Math.PI/180);
-  if(layer.image) ctx.drawImage(layer.image,-w/2,-h/2,w,h);
-  else {
-    ctx.scale(w/320,h/100);
-    ctx.fillStyle="#e4dfca";ctx.textAlign="center";ctx.font="italic 900 70px Arial";
-    ctx.fillText("CHRONIC",0,6,320);
-    ctx.fillRect(-155,17,310,1.7);
-    ctx.font="bold 14px monospace";ctx.fillText("T R U S T   T H E   P R O C E S S",0,39,304);
-  }
+  ctx.drawImage(layer.image,-w/2,-h/2,w,h);
   if(full) {
     ctx.strokeStyle="#7e9f31";ctx.lineWidth=1;ctx.setLineDash([4,3]);ctx.strokeRect(-w/2,-h/2,w,h);ctx.setLineDash([]);
   }
@@ -289,9 +291,13 @@ function render(target=canvas, format="preview") {
   else {
     const photo=activePhoto();
     if(photo) {
-      const f=Math.min(810/photo.naturalWidth,810/photo.naturalHeight);
-      const w=photo.naturalWidth*f,h=photo.naturalHeight*f;
-      ctx.drawImage(photo,450-w/2,450-h/2,w,h);
+      const {image,width,x,y}=photo;
+      const f=Math.min(810/image.naturalWidth,810/image.naturalHeight);
+      const w=image.naturalWidth*f,h=image.naturalHeight*f;
+      const left=450-w/2, top=450-h/2;
+      g.scale=w/width;
+      g.anchors[view]=[left+w*x/100,top+h*y/100];
+      ctx.drawImage(image,left,top,w,h);
       const source=ctx.getImageData(0,0,1800,1800);
       ctx.clearRect(0,0,900,900);
       for(const k of Object.keys(g.anchors)) if(layers[k]) printArtwork(layers[k],k,g);
@@ -329,7 +335,16 @@ function render(target=canvas, format="preview") {
 }
 function schedule() {
   if(pending) return;
-  pending=requestAnimationFrame(()=>{pending=0;render();});
+  pending=requestAnimationFrame(()=>{
+    pending=0;render();
+    if(split){
+      lastPattern=geometry(zone==="back"?"back":"front",true);
+      ctx.setTransform(2,0,0,2,0,0);ctx.clearRect(0,0,900,900);
+      drawPattern(lastPattern,"preview");
+      const output=patternCanvas.getContext("2d");
+      output.clearRect(0,0,1800,1800);output.drawImage(work,0,0);
+    }
+  });
 }
 function choose(nextView,nextZone) {
   view=nextView;zone=nextZone;updateUI();schedule();
@@ -341,15 +356,29 @@ $("garments").addEventListener("click",event=>{
 });
 $("view").addEventListener("click",event=>{
   const next=event.target.dataset.value;
-  if(next)choose(next,next==="pattern"?zone:next);
+  if(next) {
+    if(next==="pattern")split=false;
+    choose(next,next==="pattern"?zone:next);
+  }
 });
+$("split").onclick=()=>{
+  split=!split;
+  choose(view==="pattern"?(zone==="back"?"back":"front"):view,zone);
+};
+function selectZone(key) {
+  choose(view==="pattern"?view:key==="back"?"back":"front",key);
+}
+$("patternZones").onclick=event=>{
+  const key=event.target.dataset.zone;
+  if(key)selectZone(key);
+};
 $("tabs").addEventListener("click",event=>{
   if(!event.target.dataset.value)return;
   tab=event.target.dataset.value;updateUI();
 });
 $("zone").addEventListener("change",event=>{
   const key=event.target.value;
-  choose(view==="pattern"?view:key==="back"?"back":"front",key);
+  selectZone(key);
 });
 $("clearArt").onclick=()=>{delete layers[zone];syncLayer();schedule();};
 const bound = (value,min,max) => Math.max(min,Math.min(max,value));
@@ -418,51 +447,66 @@ $("photo").addEventListener("change",async event=>{
   if(!event.target.files[0])return;
   const side=view==="pattern"?(zone==="back"?"back":"front"):view, style=garment;
   try{
-    photos[style+"-"+side]=await loadImage(event.target.files[0]);
+    const image=await loadImage(event.target.files[0]);
+    const original=drafts[style];
+    photos[style+"-"+side]={image,width:Math.round(original.chest*1.8),x:50,y:37};
     if(style===garment)choose(side,side);
     notify("已套用"+(side==="front"?"正面":"背面")+"實拍底圖");
   }catch(error){notify(error.message);}
   event.target.value="";
 });
+for(const [id,key,min,max] of [["photoWidth","width",5,300],["photoX","x",0,100],["photoY","y",0,100]]) {
+  $(id).oninput=()=>{
+    const value=$(id).valueAsNumber;
+    const photo=activePhoto();
+    if(photo && Number.isFinite(value)){photo[key]=bound(value,min,max);schedule();}
+  };
+  $(id).onchange=()=>{if(activePhoto())$(id).value=activePhoto()[key];};
+}
 $("removePhoto").onclick=()=>{delete photos[garment+"-"+view];updateUI();schedule();};
 for(const id of ["color","color2","gradient","material","background","fitType",...Object.values(ranges).flat().map(([id])=>id)]) $(id).addEventListener("input",schedule);
 $("swatches").addEventListener("click",event=>{if(event.target.dataset.color){$("color").value=event.target.dataset.color;schedule();}});
 $("pose").addEventListener("change",()=>{updateUI();schedule();});
-function point(event) {
-  const box=canvas.getBoundingClientRect();
+function point(event, surface) {
+  const box=surface.getBoundingClientRect();
   return [(event.clientX-box.left)/box.width*900,(event.clientY-box.top)/box.height*900];
 }
-canvas.addEventListener("wheel",event=>{
-  if(!event.shiftKey||!layers[zone]||!last?.anchors[zone])return;
-  event.preventDefault();
-  const layer=layers[zone], smallest=Math.min(layer.width,layer.height), largest=Math.max(layer.width,layer.height);
-  const factor=bound(Math.exp(-Math.sign(event.deltaY)*.07),.1/smallest,150/largest);
-  layer.width*=factor;layer.height*=factor;
-  syncLayer();schedule();
-},{passive:false});
-canvas.addEventListener("pointerdown",event=>{
-  if (!last||event.button!==0)return;
-  const [x,y]=point(event);
-  const keys=view==="pattern"?[zone]:[zone,...Object.keys(last.anchors).reverse()];
-  for(const key of keys){
-    const layer=layers[key], anchor=last.anchors[key];
-    if(!layer||!anchor||(key==="label"&&view!=="pattern"&&view==="back"))continue;
-    const dx=x-anchor[0]-layer.x*last.scale,dy=y-anchor[1]-layer.y*last.scale;
-    const angle=layer.angle*Math.PI/180, px=dx*Math.cos(angle)+dy*Math.sin(angle),py=-dx*Math.sin(angle)+dy*Math.cos(angle);
-    if(Math.abs(px)>layer.width*last.scale/2+5||Math.abs(py)>layer.height*last.scale/2+5)continue;
-    zone=key;updateUI();drag={key,x,y,startX:layer.x,startY:layer.y,scale:last.scale};canvas.setPointerCapture(event.pointerId);canvas.style.cursor="grabbing";break;
-  }
-});
-canvas.addEventListener("pointermove",event=>{
-  if(!drag||!layers[drag.key])return;
-  const [x,y]=point(event),layer=layers[drag.key];
-  layer.x=bound(drag.startX+(x-drag.x)/drag.scale,-180,180);layer.y=bound(drag.startY+(y-drag.y)/drag.scale,-180,180);
-  syncLayer();schedule();
-});
-for(const name of ["pointerup","lostpointercapture","pointercancel"])canvas.addEventListener(name,()=>{drag=null;canvas.style.cursor="default";});
+function bindSurface(surface,getGeometry) {
+  surface.addEventListener("wheel",event=>{
+    if(!event.shiftKey||!layers[zone]||!getGeometry()?.anchors[zone])return;
+    event.preventDefault();
+    const layer=layers[zone], smallest=Math.min(layer.width,layer.height), largest=Math.max(layer.width,layer.height);
+    const factor=bound(Math.exp(-Math.sign(event.deltaY)*.07),.1/smallest,150/largest);
+    layer.width*=factor;layer.height*=factor;
+    syncLayer();schedule();
+  },{passive:false});
+  surface.addEventListener("pointerdown",event=>{
+    const layout=getGeometry();
+    if (!layout||event.button!==0)return;
+    const [x,y]=point(event,surface);
+    const keys=(surface===patternCanvas||view==="pattern")?[zone]:[zone,...Object.keys(layout.anchors).reverse()];
+    for(const key of keys){
+      const layer=layers[key], anchor=layout.anchors[key];
+      if(!layer||!anchor||(key==="label"&&surface===canvas&&view==="back"))continue;
+      const dx=x-anchor[0]-layer.x*layout.scale,dy=y-anchor[1]-layer.y*layout.scale;
+      const angle=layer.angle*Math.PI/180, px=dx*Math.cos(angle)+dy*Math.sin(angle),py=-dx*Math.sin(angle)+dy*Math.cos(angle);
+      if(Math.abs(px)>layer.width*layout.scale/2+5||Math.abs(py)>layer.height*layout.scale/2+5)continue;
+      zone=key;updateUI();drag={key,x,y,startX:layer.x,startY:layer.y,scale:layout.scale};surface.setPointerCapture(event.pointerId);surface.style.cursor="grabbing";break;
+    }
+  });
+  surface.addEventListener("pointermove",event=>{
+    if(!drag||!layers[drag.key])return;
+    const [x,y]=point(event,surface),layer=layers[drag.key];
+    layer.x=bound(drag.startX+(x-drag.x)/drag.scale,-180,180);layer.y=bound(drag.startY+(y-drag.y)/drag.scale,-180,180);
+    syncLayer();schedule();
+  });
+  for(const name of ["pointerup","lostpointercapture","pointercancel"])surface.addEventListener(name,()=>{drag=null;surface.style.cursor="default";});
+}
+bindSurface(canvas,()=>last);
+bindSurface(patternCanvas,()=>lastPattern);
 $("reset").onclick=()=>{
   if(!confirm("重設所有版型、印花和場景設定？"))return;
-  defaults();garment=0;tab="art";
+  defaults();garment=0;tab="art";split=false;
   for(const [id,value] of Object.entries({pose:"flat",fitType:"1",material:"0",color:"#181818",color2:"#474747",background:"#ffffff"}))$(id).value=value;
   $("gradient").checked=false;
   for(const rows of Object.values(ranges))for(const [id,,,,value] of rows)$(id).value=value;
