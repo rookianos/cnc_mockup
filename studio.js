@@ -122,7 +122,52 @@ function geometry(side = view, pattern = view==="pattern") {
   const p = [], anchors = {};
   function piece(key,d,seams=[], folds=[]) { const shape=path(d); p.push({key,shape,seams:seams.map(path),folds}); return shape; }
   const bodyKey=side==="back"?"back":"front";
-  if (pants) {
+  if (kind==="tee") {
+    // Reference: dropped shoulder, straight cuff edge and ribbed crew neck.
+    const shoulderY=y+h*.10, armY=y+h*(pose==="flat"?.54:.48);
+    const shoulderWidth=Math.min(sh,half*1.16);
+    const drop=Math.min(sl*.20,half*.23);
+    const neckWidth=Math.min(half*.43,scale*10.3);
+    const neckDepth=Math.min(h*.18,scale*(side==="back"?2.2:10.8));
+    const collar=Math.min(scale*2.2,h*.045);
+    const hemCurve=pose==="flat"?0:Math.min(12,h*.025);
+    const sideInset=pose==="form"?half*.07:0;
+    const frontNeck=(width, depth)=>`C${x-width*.96} ${y+depth*1.33} ${x+width*.96} ${y+depth*1.33} ${x+width} ${y}`;
+    if (!pattern && side==="front") {
+      piece("neck",`M${x-neckWidth} ${y} Q${x} ${y+collar} ${x+neckWidth} ${y} C${x+neckWidth*.96} ${y+neckDepth*1.33} ${x-neckWidth*.96} ${y+neckDepth*1.33} ${x-neckWidth} ${y}Z`,[
+        `M${x-neckWidth+2} ${y+collar} Q${x} ${y+collar*2.5} ${x+neckWidth-2} ${y+collar}`
+      ]);
+    }
+    for (const [key,sign] of [["left",-1],["right",1]]) {
+      if (pattern) {
+        const capWidth=Math.max(sl*1.4,(armY-shoulderY)*.84);
+        const capHeight=Math.min(sl*.31,capWidth*.28);
+        const capTop=y+h*.24, cuffY=capTop+sl;
+        const cuffWidth=capWidth*.85;
+        piece(key,`M${x-capWidth/2} ${capTop+capHeight} C${x-capWidth*.27} ${capTop+capHeight} ${x-capWidth*.23} ${capTop} ${x} ${capTop} C${x+capWidth*.23} ${capTop} ${x+capWidth*.27} ${capTop+capHeight} ${x+capWidth/2} ${capTop+capHeight} L${x+cuffWidth/2} ${cuffY} H${x-cuffWidth/2}Z`,[
+          `M${x-cuffWidth/2} ${cuffY-scale*1.7}H${x+cuffWidth/2}`
+        ]);
+        anchors[key]=[x,capTop+sl*.55];
+        continue;
+      }
+      const sx=distance=>x+sign*distance;
+      const outer=shoulderWidth+sl*(pose==="flat"?.81:.62);
+      const outerY=shoulderY+sl*(pose==="flat"?.96:.90);
+      const inner=Math.max(shoulderWidth*.85,outer-sl*.73);
+      const innerY=outerY+sl*(pose==="flat"?.42:.30);
+      const seam=Math.min(8,sl*.10);
+      piece(key,`M${sx(shoulderWidth-4)} ${shoulderY-3} Q${sx(shoulderWidth+drop*.55)} ${shoulderY+drop*.28} ${sx(shoulderWidth+drop)} ${shoulderY+drop*.75} L${sx(outer)} ${outerY} L${sx(inner)} ${innerY} Q${sx(half*.89)} ${armY+6} ${sx(half*.88)} ${armY} L${sx(shoulderWidth-5)} ${shoulderY}Z`,[
+        `M${sx(outer-seam*.7)} ${outerY-seam} L${sx(inner-seam*.38)} ${innerY-seam}`
+      ],[[sx(shoulderWidth+drop*.68),shoulderY+drop,sx(outer-sl*.19),outerY-7]]);
+      anchors[key]=[sx((outer+shoulderWidth)/2),shoulderY+(innerY-shoulderY)*.63];
+    }
+    piece(bodyKey,`M${x-shoulderWidth} ${shoulderY} Q${x-shoulderWidth*.91} ${y+h*.067} ${x-neckWidth} ${y} ${frontNeck(neckWidth,neckDepth)} Q${x+shoulderWidth*.91} ${y+h*.067} ${x+shoulderWidth} ${shoulderY} Q${r-2} ${y+h*.29} ${r} ${armY} Q${r-sideInset} ${y+h*.78} ${r} ${hem} Q${x} ${hem+hemCurve} ${l} ${hem} Q${l+sideInset} ${y+h*.78} ${l} ${armY} Q${l+2} ${y+h*.29} ${x-shoulderWidth} ${shoulderY}Z`,[
+      `M${x-neckWidth-collar} ${y+collar*.32} C${x-neckWidth-collar} ${y+neckDepth*1.33+collar*1.40} ${x+neckWidth+collar} ${y+neckDepth*1.33+collar*1.40} ${x+neckWidth+collar} ${y+collar*.32}`,
+      `M${l} ${hem-collar} Q${x} ${hem-collar+hemCurve} ${r} ${hem-collar}`
+    ],[[l+12,armY-42,l+30,hem-27],[r-15,armY-6,r-39,hem-45],[x+33,shoulderY+40,x+11,hem-63]]);
+    anchors[bodyKey]=[x,y+h*.33];
+    anchors.label=[x,y+Math.min(collar*2.15,neckDepth*.67)];
+  } else if (pants) {
     const crotch=y+h*.34, flare=half*.22;
     piece(bodyKey,`M${l} ${y}Q450 ${y-5} ${r} ${y} C${r+flare} ${y+h*.28} ${r+flare*2} ${hem-83} ${r-4} ${hem} Q${r-half*.45} ${hem+6} 460 ${hem-2} Q472 ${crotch+42} 450 ${crotch} Q428 ${crotch+42} 440 ${hem-2} Q${l+half*.45} ${hem+6} ${l+4} ${hem} C${l-flare*2} ${hem-83} ${l-flare} ${y+h*.28} ${l} ${y}Z`,[`M${l} ${y+24}Q450 ${y+30} ${r} ${y+24}`,`M450 ${y+25}V${crotch}`,`M${l+4} ${hem-11}H440 M460 ${hem-11}H${r-4}`],[[l+25,y+35,l+10,hem-15],[r-21,y+42,r+4,hem-13]]);
     anchors[bodyKey]=[x+half*.64,y+h*.22];
