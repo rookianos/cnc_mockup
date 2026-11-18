@@ -1,14 +1,14 @@
 "use strict";
 const $ = id => document.getElementById(id);
 const garments = [
-  ["Boxy 短袖 T-Shirt","SHORT SLEEVE",60,72,59,24,"tee"],
-  ["落肩長袖 T-Shirt","LONG SLEEVE",60,74,59,58,"long"],
-  ["重磅 Sweater","CREWNECK",64,72,62,57,"sweater"],
-  ["落肩 Hoodie","HOODED SWEATSHIRT",66,73,64,58,"hood"],
-  ["底特律夾克","DETROIT JACKET",64,68,56,62,"jacket"],
+  ["方寬版短袖圓領 T 恤","BOXY CREWNECK TEE",60,72,59,24,"tee"],
+  ["落肩長袖圓領 T 恤","DROP-SHOULDER LONG-SLEEVE TEE",60,74,59,58,"long"],
+  ["圓領衛衣","CREWNECK SWEATSHIRT",64,72,62,57,"sweater"],
+  ["落肩連帽衛衣","DROP-SHOULDER HOODIE",66,73,64,58,"hood"],
+  ["翻領拉鍊工裝夾克","ZIP-FRONT WORK JACKET",64,68,56,62,"jacket"],
   ["寬版彎刀運動褲","BARREL SWEATPANTS",43,103,43,22,"pants"],
-  ["男款 Tank","MEN'S TANK",51,71,35,12,"tank"],
-  ["女款 Tank","WOMEN'S TANK",40,54,28,12,"women"]
+  ["低圓領背心","SCOOP-NECK TANK TOP",51,71,35,12,"tank"],
+  ["短版寬肩無袖上衣","CROPPED WIDE-STRAP TANK",40,54,28,12,"women"]
 ];
 const zones = {front:"前片",back:"後片",left:"左袖",right:"右袖",hood:"帽子",pocket:"口袋",label:"領口內標"};
 const measurements = {chest:"胸寬平量",shoulder:"肩寬平量",front:"前衣長",back:"後衣長",sleeve:"袖長",waist:"腰寬平量",inseam:"褲長"};
@@ -525,3 +525,21 @@ for (const format of ["png","jpg"]) $(format).onclick=()=>{
   },format==="png"?"image/png":"image/jpeg",.95);
 };
 updateUI();schedule();new ResizeObserver(schedule).observe(canvas);
+
+const referenceCatalog = window.garmentCatalog || [];
+const categories = [...new Set(referenceCatalog.map(([category]) => category))];
+for (const name of ["全部分類", ...categories]) $("catalogCategory").add(new Option(name, name));
+function renderCatalog() {
+  const search = $("catalogSearch").value.trim().toLowerCase();
+  const filter = $("catalogCategory").value;
+  const matches = referenceCatalog.filter(([category, zh, en]) =>
+    (filter === "全部分類" || filter === category) && (zh + " " + en).toLowerCase().includes(search));
+  $("catalogCount").textContent = matches.length + " 組";
+  $("catalogItems").innerHTML = matches.map(([category, zh, en, file]) =>
+    `<figure><img src="garment-reference/${file}" alt="${zh}款式圖" loading="lazy"><figcaption><strong>${zh}</strong><small>${en}</small><span>${category}</span></figcaption></figure>`
+  ).join("");
+  if (!matches.length) $("catalogItems").textContent = "沒有符合的款式。";
+}
+$("openCatalog").onclick = () => { renderCatalog(); $("catalog").showModal(); };
+$("catalogSearch").oninput = renderCatalog;
+$("catalogCategory").onchange = renderCatalog;
